@@ -334,18 +334,12 @@ f'(x) = 2x
 
 ******************************************************************************/
 
+#include <cmath>
+
 int card::IntSqrt(long square)
 {
-    long lastguess = square;
-    long guess = min(square / 2L, 1024L);
-
-    while (labs(guess-lastguess) > 3L)       // 3 is close enough
-    {
-        lastguess = guess;
-        guess -= ((guess * guess) - square) / (2L * guess);
-    }
-
-    return (int) guess;
+    // Use hardware accelerated std::sqrt instead of Newton's method loop
+    return (int) std::sqrt((double) square);
 }
 
 

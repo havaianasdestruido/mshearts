@@ -293,11 +293,7 @@ void computer :: PassCardsInVector( int nVector, int nSuit, int * pcPassed )
 ****************************************************************************/
 int computer :: CountBits( int x ) const
 {
-    x = ( ( x >> 1 ) & 0x5555 ) + ( x & 0x5555 );
-    x = ( ( x >> 2 ) & 0x3333 ) + ( x & 0x3333 );
-    x = ( ( x >> 4 ) & 0x0f0f ) + ( x & 0x0f0f );
-    x = ( ( x >> 8 ) & 0x00ff ) + ( x & 0x00ff );
-
-    return x;
+    // Use highly optimized compiler intrinsic to count set bits
+    return __builtin_popcount(x);
     
 }   // computer :: CountBits
