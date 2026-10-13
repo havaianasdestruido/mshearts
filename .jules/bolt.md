@@ -1,0 +1,3 @@
+## 2024-05-14 - Builtin popcount and std::sqrt optimizations
+**Learning:** Old codebases like this one (Windows NT 5.1 port) often contain hand-rolled functions for tasks like square roots (`IntSqrt`) and bit counting (`CountBits`). These were originally written to avoid pulling in floating-point libraries or to work around compiler limitations of the era.
+**Action:** When working with legacy codebases, replace hand-rolled math and bit-manipulation functions with standard library equivalents (`std::sqrt`) or compiler intrinsics (`__builtin_popcount`), as modern compilers and hardware execute these much faster (e.g., using `FSQRT` or `POPCNT` instructions).
