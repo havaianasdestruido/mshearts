@@ -293,7 +293,15 @@ void computer :: PassCardsInVector( int nVector, int nSuit, int * pcPassed )
 ****************************************************************************/
 int computer :: CountBits( int x ) const
 {
-    // Use highly optimized compiler intrinsic to count set bits
-    return __builtin_popcount(x);
+    // Use Brian Kernighan's algorithm to count set bits
+    // This provides a cross-platform performance optimization without
+    // relying on GCC/Clang specific intrinsics like __builtin_popcount
+    // which cause build regressions in MSVC.
+    int count = 0;
+    while (x) {
+        x &= (x - 1);
+        count++;
+    }
+    return count;
     
 }   // computer :: CountBits
