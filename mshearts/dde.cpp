@@ -84,7 +84,9 @@ DDE::~DDE()
     DestroyStrHandle(m_hTopic);
 
     ::DdeUninitialize(m_idInst);
-    FreeProcInstance((FARPROC)m_CallBack);
+    // No FreeProcInstance: MakeProcInstance/FreeProcInstance are 16-bit only
+    // and were removed from modern Windows SDKs (issue #5).  Win32 flat
+    // pointers need no thunk.
 }
 
 
@@ -173,13 +175,25 @@ DDE:GetDataString
 
 CString DDE::GetDataString(HDDEDATA hData)
 {
-    if (hData == NULL)          // default paramenter
+    if (hData == NULL)          // default parameter
         return m_data;
 
-    DWORD len = ::DdeGetData(hData, NULL, 0, 0);      // find length
-    TCHAR *pdata = m_data.GetBuffer((int)len);
-    ::DdeGetData(hData, (LPBYTE)pdata, len, 0);
-    m_data.ReleaseBuffer();
+    // DdeGetData reports/copies a BYTE count, while CString::GetBuffer takes a
+    // TCHAR count and ReleaseBuffer() calls _tcslen on the buffer.  Size and
+    // copy explicitly in bytes so Unicode builds neither truncate the data nor
+    // scan past the end of an uninitialized buffer (issue #7).
+    DWORD cbBytes = ::DdeGetData(hData, NULL, 0, 0);
+    if (cbBytes == 0)
+    {
+        m_data.Empty();
+        return m_data;
+    }
+
+    int cch = (int)((cbBytes + sizeof(TCHAR) - 1) / sizeof(TCHAR));
+    TCHAR *pdata = m_data.GetBuffer(cch + 1);
+    ZeroMemory(pdata, (cch + 1) * sizeof(TCHAR));
+    ::DdeGetData(hData, (LPBYTE)pdata, cbBytes, 0);
+    m_data.ReleaseBuffer(cch);
     return m_data;
 }
 
@@ -193,7 +207,9 @@ DDE::Initialize
 
 BOOL DDE::Initialize()
 {
-    m_initerr = (WORD)::DdeInitialize(&m_idInst, (PFNCALLBACK)m_CallBack,
+    // DDECALLBACK now matches the Win32 PFNCALLBACK prototype (issue #6), so
+    // no suppressing cast is needed.
+    m_initerr = (WORD)::DdeInitialize(&m_idInst, m_CallBack,
                  m_filters, 0);
     m_bResult = (m_initerr == DMLERR_NO_ERROR);
     return m_bResult;
@@ -208,12 +224,10 @@ DDE::SetCallBack
 
 BOOL DDE::SetCallBack(DDECALLBACK CallBack)
 {
-    if (m_CallBack)
-        FreeProcInstance((FARPROC)m_CallBack);
-
-    m_CallBack = (DDECALLBACK)MakeProcInstance((FARPROC)CallBack,
-                                                AfxGetInstanceHandle());
-
+    // Win32 flat pointers need no thunk: MakeProcInstance/FreeProcInstance
+    // are 16-bit only and absent from modern SDKs (issue #5).  Store the
+    // callback address directly.
+    m_CallBack = CallBack;
     m_bResult = (m_CallBack != NULL);
     return m_bResult;
 }
@@ -280,7 +294,8 @@ DDEClient::DDEClient
 
 DDEClient::DDEClient(const TCHAR *server, const TCHAR *topic,
                      DDECALLBACK ClientCallBack, DWORD filters) :
-                     DDE(server, topic, ClientCallBack, filters)
+                     DDE(server, topic, ClientCallBack, filters),
+                     m_hConv(NULL)
 {
     if (!m_bResult)             // if DDE construction failed
         return;
@@ -302,7 +317,10 @@ DDEClient::~DDEClient
 
 DDEClient::~DDEClient()
 {
-    ::DdeDisconnect(m_hConv);
+    // m_hConv can be NULL or uninitialized if DdeConnect failed or the
+    // constructor bailed out early (issue #4).
+    if (m_hConv != NULL)
+        ::DdeDisconnect(m_hConv);
 }
 
 
@@ -332,7 +350,19 @@ BOOL DDEClient::Poke(HSZ hItem, const TCHAR *string, DWORD uTimeout)
     else
         m_timeout = uTimeout;
 
-    ClientTransaction((void FAR *)string, lstrlen(string)+1, hItem, XTYP_POKE);
+    // cbData is a BYTE count for DdeClientTransaction, but lstrlen() returns
+    // TCHARs -- half the byte count in Unicode builds, which truncated the
+    // poked string (issue #7).  Send the true byte count, and use the
+    // clipboard format that matches the TCHAR width.
+#ifdef UNICODE
+    UINT uFmt = CF_UNICODETEXT;
+#else
+    UINT uFmt = CF_TEXT;
+#endif
+
+    ClientTransaction((void FAR *)string,
+                      (DWORD)((_tcslen(string) + 1) * sizeof(TCHAR)),
+                      hItem, XTYP_POKE, uFmt);
     return m_bResult;
 }
 

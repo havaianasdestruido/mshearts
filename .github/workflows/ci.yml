@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  includes:
+    name: Verify all quoted #include directives resolve in-repo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run include-resolution check (issue #9)
+        run: python3 tools/check_includes.py
+
+  # A full compile requires Windows + MSVC + MFC + the Windows SDK, which are
+  # not available on hosted runners (MFC is not part of the free SDK
+  # download).  The original build used the NT 5.1 tree's .vcxproj/.rc; once
+  # those are restored (issue #9), a windows-latest job using MSBuild can be
+  # added here.

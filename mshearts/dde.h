@@ -47,9 +47,21 @@ Class DDEClient : DDE
 
 #include <ddeml.h>
 
-typedef HDDEDATA (EXPENTRY *DDECALLBACK) (WORD, WORD, HCONV, HSZ, HSZ, HDDEDATA, DWORD, DWORD);
-HDDEDATA EXPENTRY EXPORT DdeServerCallBack(WORD, WORD, HCONV, HSZ, HSZ, HDDEDATA, DWORD, DWORD);
-HDDEDATA EXPENTRY EXPORT DdeClientCallBack(WORD, WORD, HCONV, HSZ, HSZ, HDDEDATA, DWORD, DWORD);
+// Win32 DDEML callback signature (issue #6).  The previous Win16 WORD/DWORD
+// prototype corrupts the stack on x64/ARM64; match <ddeml.h>'s PFNCALLBACK
+// exactly (UINT/UINT/HCONV/HSZ/HSZ/HDDEDATA/ULONG_PTR/ULONG_PTR, __stdcall).
+typedef HDDEDATA (CALLBACK *DDECALLBACK)(
+    UINT     wType,
+    UINT     wFmt,
+    HCONV    hConv,
+    HSZ      hsz1,
+    HSZ      hsz2,
+    HDDEDATA hData,
+    ULONG_PTR dwData1,
+    ULONG_PTR dwData2);
+
+HDDEDATA CALLBACK DdeServerCallBack(UINT, UINT, HCONV, HSZ, HSZ, HDDEDATA, ULONG_PTR, ULONG_PTR);
+HDDEDATA CALLBACK DdeClientCallBack(UINT, UINT, HCONV, HSZ, HSZ, HDDEDATA, ULONG_PTR, ULONG_PTR);
 
 class DDE
 {
