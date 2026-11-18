@@ -468,8 +468,11 @@ BOOL CWelcomeDlg::IsNetDdeActive()
 
     if ((*lpfnNDDEGetWindow)() == NULL)         // look for netdde main window
     {
-        UINT ret = WinExec("NETDDE.EXE", SW_SHOWNA);
-        TRACE1("ret from WinExec is %u\n", ret);
+        // WinExec is a 16-bit compatibility API removed from modern SDKs
+        // (issue #5); ShellExecute is the supported replacement.
+        HINSTANCE ret = ShellExecute(NULL, TEXT("open"), TEXT("NETDDE.EXE"),
+                                     NULL, NULL, SW_SHOWNA);
+        TRACE1("ret from ShellExecute is %u\n", (UINT)ret);
 
         if ((*lpfnNDDEGetWindow)() == NULL)
             m_bNetDdeActive = FALSE;
@@ -539,7 +542,9 @@ BOOL COptionsDlg::OnInitDialog()
         if (sName[i].IsEmpty())
             sName[i].LoadString(IDS_P1NAME + i);
 
-        pName[i]->SetWindowText(p);
+        // Use the CString itself: p was invalidated by ReleaseBuffer() above
+        // (issue #12 -- use-after-free / stale pointer).
+        pName[i]->SetWindowText(sName[i]);
     }
 
     // get current autostart state

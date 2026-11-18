@@ -28,23 +28,23 @@ DdeServerCallback()
 
 ****************************************************************************/
 
-HDDEDATA EXPENTRY EXPORT DdeServerCallBack(WORD wType, WORD wFmt, HCONV hConv,
+HDDEDATA CALLBACK DdeServerCallBack(UINT wType, UINT wFmt, HCONV hConv,
                                     HSZ hsz1, HSZ hsz2, HDDEDATA hData,
-                                    DWORD dwData1, DWORD dwData2)
+                                    ULONG_PTR dwData1, ULONG_PTR dwData2)
 {
     return ::pMainWnd->DdeSrvCallBack(wType, wFmt, hConv, hsz1, hsz2, hData,
                                     dwData1, dwData2);
 }
 
 HDDEDATA CMainWindow::DdeSrvCallBack(
-WORD    wType,              // transaction type
-WORD    wFmt,               // clipboard format
+UINT    wType,              // transaction type
+UINT    wFmt,               // clipboard format
 HCONV   hConv,              // handle to conversation
 HSZ     hsz1,               // string handles
 HSZ     hsz2,
 HDDEDATA hData,             // handle to a global memory object
-DWORD   dwData1,            // transaction-specific data
-DWORD   dwData2)
+ULONG_PTR dwData1,          // transaction-specific data
+ULONG_PTR dwData2)
 {
     switch(wType)
     {
@@ -180,23 +180,23 @@ DdeClientCallback()
 
 ****************************************************************************/
 
-HDDEDATA EXPENTRY EXPORT DdeClientCallBack(WORD wType, WORD wFmt, HCONV hConv,
+HDDEDATA CALLBACK DdeClientCallBack(UINT wType, UINT wFmt, HCONV hConv,
                                     HSZ hsz1, HSZ hsz2, HDDEDATA hData,
-                                    DWORD dwData1, DWORD dwData2)
+                                    ULONG_PTR dwData1, ULONG_PTR dwData2)
 {
     return ::pMainWnd->DdeCliCallBack(wType, wFmt, hConv, hsz1, hsz2, hData,
                                     dwData1, dwData2);
 }
 
 HDDEDATA CMainWindow::DdeCliCallBack(
-WORD    wType,              // transaction type
-WORD    wFmt,               // clipboard format
+UINT    wType,              // transaction type
+UINT    wFmt,               // clipboard format
 HCONV   hConv,              // handle to conversation
 HSZ     hsz1,               // string handles
 HSZ     hsz2,
 HDDEDATA hData,             // handle to a global memory object
-DWORD   dwData1,            // transaction-specific data
-DWORD   dwData2)
+ULONG_PTR dwData1,          // transaction-specific data
+ULONG_PTR dwData2)
 {
     switch(wType)
     {
@@ -314,6 +314,13 @@ int CMainWindow::AddNewPlayer(HCONV hConv, HDDEDATA hData)
 	SetLayout(dc.m_hAttribDC, 0);
 #endif
     CString     name = ddeServer->GetDataString(hData);
+
+    // Remote names arrive via XTYP_POKE with no length validation: truncate
+    // to MAXNAMELENGTH so they can never overflow the fixed-size GAMESTATUS
+    // name buffer when the server broadcasts status (issue #13).
+    if (name.GetLength() > MAXNAMELENGTH)
+        name = name.Left(MAXNAMELENGTH);
+
     p[id]->SetName(name, dc);
     p[id]->DisplayName(dc);
 
@@ -441,19 +448,26 @@ HDDEDATA CMainWindow::GetGameStatus(HCONV hConv)
     GAMESTATUS gs;
 
     gs.id = -1;             // error value if not reset
+    ZeroMemory(&gs, sizeof(gs));
+    gs.id = -1;
 
     for (int i = 0; i < MAXPLAYER; i++)
     {
         if (p[i])
         {
-            lstrcpy(gs.name[i], p[i]->GetName());
+            // Remote player names are untrusted network data -- never lstrcpy
+            // them into the fixed-size gs.name[i] buffer (issue #13, remotely
+            // triggered stack buffer overflow).  lstrcpyn bounds the copy and
+            // we force-terminate the buffer.
+            lstrcpyn(gs.name[i], p[i]->GetName(), MAXNAMELENGTH + 1);
+            gs.name[i][MAXNAMELENGTH] = _T('\0');
             if (p[i]->GetConv() == hConv)
             {
                 gs.id = i;
             }
         }
         else
-            gs.name[i][0] = '\0';
+            gs.name[i][0] = _T('\0');
     }
 
     return dde->CreateDataHandle(&gs, sizeof(gs), hszStatus);

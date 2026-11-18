@@ -78,16 +78,19 @@ class card {
         card(int n = EMPTY);
         ~card();
 
-        int ID()    { ASSERT(this != NULL); return id; }
-        int Suit()  { ASSERT(this != NULL); return (id % MAXSUIT); }
-        int Value() { ASSERT(this != NULL); return (id / MAXSUIT); }
+        int ID()    { return id; }
+        int Suit()  { return (id % MAXSUIT); }
+        int Value() { return (id / MAXSUIT); }
         int Value2() { int v = Value(); return ((v == ACE) ? (KING + 1) : v); }
         VOID Select(BOOL b) { state = (b ? SELECTED : NORMAL); }
-        BOOL IsEmpty() { ASSERT(this != NULL); return (id == EMPTY); }
-        BOOL IsSelected() { ASSERT(this != NULL); return (state == SELECTED); }
-        BOOL IsPlayed() { ASSERT(this != NULL); return (state == PLAYED); }
+        BOOL IsEmpty() { return (id == EMPTY); }
+        BOOL IsSelected() { return (state == SELECTED); }
+        BOOL IsPlayed() { return (state == PLAYED); }
         BOOL IsHeart() { return (Suit() == HEARTS); }
-        BOOL IsValid() { return ((this != NULL) && (id != EMPTY)); }
+        // Callers must check for NULL before calling member functions (issue
+        // #11): a `this != NULL` test inside the method is undefined
+        // behaviour and gives false confidence.
+        BOOL IsValid() { return (id != EMPTY); }
 
         VOID SetID(int n) { id = n; }
         VOID SetLoc(int x, int y) { loc.x = x; loc.y = y; }

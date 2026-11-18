@@ -59,22 +59,48 @@ card::card(int n) : id(n), state(NORMAL)
     if (count == 0)
     {
         bConstructed = FALSE;
+        hCardsDLL = NULL;
+        lpcdtInit = NULL;
+        lpcdtDraw = NULL;
+        lpcdtTerm = NULL;
 
         hCardsDLL = LoadLibrary(TEXT("CARDS.DLL"));
         if (hCardsDLL < (HINSTANCE)HINSTANCE_ERROR)
-            return;
+        {
+            hCardsDLL = NULL;
+            return;                   // cards.dll missing: construction failed
+        }
 
         lpcdtInit = (INITPROC) GetProcAddress(hCardsDLL, "cdtInit");
         lpcdtDraw = (DRAWPROC) GetProcAddress(hCardsDLL, "cdtDraw");
         lpcdtTerm =  (FARPROC) GetProcAddress(hCardsDLL, "cdtTerm");
+        if (lpcdtInit == NULL || lpcdtDraw == NULL || lpcdtTerm == NULL)
+        {
+            // Clear every resolved callback before unloading: a dangling
+            // pointer into the freed module could otherwise be called later
+            // (issue #3, per Codex review finding).
+            FreeLibrary(hCardsDLL);
+            hCardsDLL = NULL;
+            lpcdtInit = NULL;
+            lpcdtDraw = NULL;
+            lpcdtTerm = NULL;
+            return;                   // unsupported cards.dll version
+        }
 
         BOOL bResult = FALSE;
-        if(lpcdtInit)
+        if (lpcdtInit != NULL)
         {
             bResult = (*lpcdtInit)(&dxCrd, &dyCrd);
         }
         if (!bResult)
+        {
+            FreeLibrary(hCardsDLL);
+            hCardsDLL = NULL;
+            lpcdtInit = NULL;
+            lpcdtDraw = NULL;
+            lpcdtTerm = NULL;
             return;
+        }
 
         bConstructed = TRUE;
 
@@ -92,8 +118,25 @@ card::card(int n) : id(n), state(NORMAL)
             !m_Rgn2.CreateRectRgn(1, 1, 2, 2) ||
             !m_Rgn.CreateRectRgn(1, 1, 2, 2))
                 bConstructed = FALSE;
+
+        if (!bConstructed)
+        {
+            // GDI allocation failed: tear down the one-time init so the next
+            // card retries cleanly instead of leaking or unbalancing count.
+            FreeLibrary(hCardsDLL);
+            hCardsDLL = NULL;
+            lpcdtInit = NULL;
+            lpcdtDraw = NULL;
+            lpcdtTerm = NULL;
+            return;
+        }
     }
-    count++;
+
+    // Only count successfully constructed cards.  A failed construction leaves
+    // count at 0, so the next card retries the one-time initialization instead
+    // of unbalancing the destructor's last-card cleanup (issue #3).
+    if (bConstructed)
+        count++;
 }
 
 
@@ -107,17 +150,25 @@ bitmaps and regions created for glide() are deleted.
 ****************************************************************************/
 card::~card()
 {
-    count--;
-    if (count == 0)
+    if (count > 0)
+        count--;
+
+    if (count == 0 && hCardsDLL != NULL)
     {
-        (*lpcdtTerm)();
+        if (lpcdtTerm != NULL)
+            (*lpcdtTerm)();           // guarded: NULL lpcdtTerm used to AV (issue #3)
         FreeLibrary(hCardsDLL);
+        hCardsDLL = NULL;
+        lpcdtInit = NULL;
+        lpcdtDraw = NULL;
+        lpcdtTerm = NULL;
         m_bmBgnd.DeleteObject();
         m_bmFgnd.DeleteObject();
         m_bmBgnd2.DeleteObject();
         m_Rgn.DeleteObject();
         m_Rgn1.DeleteObject();
         m_Rgn2.DeleteObject();
+        bConstructed = FALSE;
     }
 }
 
@@ -140,6 +191,9 @@ BOOL card::Draw(CDC &dc, int x, int y, int mode, BOOL bUpdateLoc)
     }
 
     if (id == EMPTY)
+        return FALSE;
+
+    if (lpcdtDraw == NULL)            // cards.dll failed to load (issue #3)
         return FALSE;
 
     return (*lpcdtDraw)(dc.m_hDC, x, y,
@@ -170,6 +224,8 @@ BOOL card::CleanDraw(CDC &dc)
         return FALSE;
 
     CBitmap *oldbitmap = memDC.SelectObject(&bitmap);
+    if (lpcdtDraw == NULL)            // cards.dll failed to load (issue #3)
+        return FALSE;
     BOOL bResult = (*lpcdtDraw)(memDC.m_hDC, 0, 0, id, FACEUP, 0);
     if (!bResult)
         return FALSE;
@@ -201,6 +257,9 @@ BOOL card::PopDraw(CDC &dc)
     if (state == SELECTED)
         y -= POPSPACING;
 
+    if (lpcdtDraw == NULL)            // cards.dll failed to load (issue #3)
+        return FALSE;
+
     return (*lpcdtDraw)(dc.m_hDC, loc.x, y, id, FACEUP, 0);
 }
 
@@ -224,9 +283,20 @@ VOID card::Glide(CDC &dc, int xEnd, int yEnd)
 {
     int     x1, y1, x2, y2;             // each step is x1,y1 to x2,y2
 
+    if (lpcdtDraw == NULL)              // cards.dll failed to load (issue #3)
+        return;
+
+    // Save the caller's DC state (selected objects, clip region, ...) and
+    // restore it on every exit path so Glide never clobbers the caller's clip
+    // region (issue #8).
+    int nSavedDC = dc.SaveDC();
+
     if (!m_MemB.CreateCompatibleDC(&dc) ||  // memory DCs
         !m_MemB2.CreateCompatibleDC(&dc))
-            return;
+    {
+        dc.RestoreDC(nSavedDC);
+        return;
+    }
 
     m_MemB2.SelectObject(&m_bmBgnd2);
     m_MemB.SelectObject(&m_bmFgnd);
@@ -265,16 +335,17 @@ VOID card::Glide(CDC &dc, int xEnd, int yEnd)
 
     GlideStep(dc, x1, y1, xEnd, yEnd);
 
-    // reset clip region for entire screen
-
-    m_Rgn.SetRectRgn(0, 0, 30000, 30000);   // really big region
-    dc.SelectObject(&m_Rgn);
+    // NOTE: the old code here reset the clip region to a 30000x30000 screen
+    // region and left it selected in the caller's DC.  Removed -- RestoreDC
+    // below reinstates the caller's original clip region and selected objects.
 
     loc.x = xEnd;
     loc.y = yEnd;
 
     m_MemB.DeleteDC();        // clean up memory DCs
     m_MemB2.DeleteDC();
+
+    dc.RestoreDC(nSavedDC);   // reinstate the caller's DC state
 }
 
 
@@ -292,7 +363,12 @@ m_MemB so it can be called again immediately with new coordinates.
 
 VOID card::GlideStep(CDC &dc, int x1, int y1, int x2, int y2)
 {
+    // m_Rgn2 is left selected into dc by the previous step.  Select m_Rgn1
+    // first so that m_Rgn2 can be reset without being modified while it is
+    // selected into a DC (issue #8: mutating a region selected into a DC is
+    // undefined GDI behaviour).
     m_Rgn1.SetRectRgn(x1, y1, x1+dxCrd, y1+dyCrd);
+    dc.SelectObject(&m_Rgn1);           // deselect m_Rgn2
     m_Rgn2.SetRectRgn(x2, y2, x2+dxCrd, y2+dyCrd);
 
     /* create background of new location by combing screen background

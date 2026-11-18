@@ -360,7 +360,9 @@ void computer::Setup(handinfotype &h)
     for (int i = 0; i < MAXPLAYER; i++)
     {
         card *c = h.cardplayed[i];
-        if (c->IsValid())
+        // Slots of players who haven't played yet are NULL (issue #11):
+        // check before calling IsValid() -- calling through NULL is UB.
+        if (c != NULL && c->IsValid())
         {
             // First, determine if there are any point cards in play.
 
