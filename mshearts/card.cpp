@@ -76,8 +76,14 @@ card::card(int n) : id(n), state(NORMAL)
         lpcdtTerm =  (FARPROC) GetProcAddress(hCardsDLL, "cdtTerm");
         if (lpcdtInit == NULL || lpcdtDraw == NULL || lpcdtTerm == NULL)
         {
+            // Clear every resolved callback before unloading: a dangling
+            // pointer into the freed module could otherwise be called later
+            // (issue #3, per Codex review finding).
             FreeLibrary(hCardsDLL);
             hCardsDLL = NULL;
+            lpcdtInit = NULL;
+            lpcdtDraw = NULL;
+            lpcdtTerm = NULL;
             return;                   // unsupported cards.dll version
         }
 
@@ -90,6 +96,9 @@ card::card(int n) : id(n), state(NORMAL)
         {
             FreeLibrary(hCardsDLL);
             hCardsDLL = NULL;
+            lpcdtInit = NULL;
+            lpcdtDraw = NULL;
+            lpcdtTerm = NULL;
             return;
         }
 

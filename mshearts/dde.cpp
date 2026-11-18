@@ -193,7 +193,11 @@ CString DDE::GetDataString(HDDEDATA hData)
     TCHAR *pdata = m_data.GetBuffer(cch + 1);
     ZeroMemory(pdata, (cch + 1) * sizeof(TCHAR));
     ::DdeGetData(hData, (LPBYTE)pdata, cbBytes, 0);
-    m_data.ReleaseBuffer(cch);
+    // ReleaseBuffer() with no length uses _tcslen, so the recorded length
+    // excludes any terminating NUL (whether or not the source included one).
+    // The buffer is zero-initialized, so _tcslen cannot read past the copied
+    // bytes (issue #7, per Codex review finding).
+    m_data.ReleaseBuffer();
     return m_data;
 }
 
