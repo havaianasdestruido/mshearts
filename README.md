@@ -36,6 +36,20 @@ Open `CMakeLists.txt` in Visual Studio (it generates a .vcxproj) or run
 enabled for the target (see `CMakeLists.txt`).  Link against `ddeml.lib`
 and `htmlhelp.lib`.
 
+## CI build artifact
+
+The `Build` workflow (`.github/workflows/build.yml`) configures and builds
+the project with CMake on a `windows-latest` runner and publishes the final
+`mshearts.exe` as a downloadable Actions artifact named
+`mshearts-windows-x64`.  It runs on pushes, pull requests and manual
+dispatches.  When a `v*` tag is pushed, the same binary is also attached to
+the corresponding GitHub Release.
+
+Because the repository import is still missing original sources (see issue
+#9 and the note above), the Windows build currently fails at link time until
+those files are restored; the workflow will fail loudly rather than publish
+an incomplete binary.
+
 ## Open issues fixed in this branch
 
 | # | Issue | Fix |
